@@ -1,2 +1,5 @@
 .env
 .venv
+ 
+ # Local data
+ qdrant_data/
