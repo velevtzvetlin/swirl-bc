@@ -22,3 +22,12 @@ services:
     restart: unless-stopped
     volumes:
       - ./apps/api/src:/app/apps/api/src
+
+  qdrant:
+    image: qdrant/qdrant
+    ports:
+      - 6333:6333 #http x:x port within localhost : port within docker container
+      - 6334:6334 #grpc...
+    volumes:
+      - ./qdrant_data:/qdrant/storage:z #anything that happens in the qdrant storage it will always be stored in the local.qdrant and reload it
+    restart: unless-stopped
