@@ -34,32 +34,32 @@ def api_call(method, url, **kwargs):
         _show_error_popup(f"An unexpected error occurred: {str(e)}")
         return False, {"message": str(e)}
 
-with st.sidebar:
-    st.title("Settings")
+# with st.sidebar:
+#     st.title("Settings")
     
-    provider = st.selectbox(
-        "Provider",
-        ["OpenAI", "Groq", "Google"]
-    )
+#     provider = st.selectbox(
+#         "Provider",
+#         ["OpenAI", "Groq", "Google"]
+#     )
     
-    if provider == "OpenAI":
-        model_name = st.selectbox(
-            "Model",
-            ["gpt-5-nano", "gpt-5-mini"]
-        )
-    elif provider == "Groq":
-        model_name = st.selectbox(
-            "Model",
-            ["llama-3.3-70b-versatile"]
-        )
-    else:
-        model_name = st.selectbox(
-            "Model",
-            ["gemini-2.5-flash"]
-        )
-    # store all kinds of varsa in the session_state object
-    st.session_state.provider = provider
-    st.session_state.model_name = model_name
+#     if provider == "OpenAI":
+#         model_name = st.selectbox(
+#             "Model",
+#             ["gpt-5-nano", "gpt-5-mini"]
+#         )
+#     elif provider == "Groq":
+#         model_name = st.selectbox(
+#             "Model",
+#             ["llama-3.3-70b-versatile"]
+#         )
+#     else:
+#         model_name = st.selectbox(
+#             "Model",
+#             ["gemini-2.5-flash"]
+#         )
+#     # store all kinds of varsa in the session_state object
+#     st.session_state.provider = provider
+#     st.session_state.model_name = model_name
     
 if "messages" not in st.session_state:
     st.session_state.messages = [{
@@ -81,18 +81,13 @@ if prompt := st.chat_input("Hello! How can I assist you today?"):
     with st.chat_message("assistant"):
         output = api_call(
             method="post",
-            url=f"{config.API_URL}/chat",
+            url=f"{config.API_URL}/rag",
             json={
-                "provider": st.session_state.provider,
-                "model_name": st.session_state.model_name,
-                "messages": st.session_state.messages
+                "query": prompt
             }
         )
-        
-        print(f"[api_call output] {output}", flush=True)
         response_data = output[1]
-        answer = response_data["message"]
-        print(f"[answer] {answer}", flush=True)
+        answer = response_data["answer"]
         st.write(answer)
         
         st.session_state.messages.append({
