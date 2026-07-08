@@ -20,6 +20,16 @@ qdrant_client = QdrantClient(
 ragas_llm = llm_factory("gpt-4.1", client=openai_client, max_tokens=4000)
 ragas_embeddings = OpenAIEmbeddings(client=openai_client, model="text-embedding-3-small")
 
+# Precision in AI measures the accuracy of a model's positive predictions. 
+# It calculates the exact percentage of positive results that were genuinely correct out of all the positive predictions the model made. 
+# A higher precision means fewer false alarms.
+# The Google Machine Learning Crash Course defines the mathematical formula for precision as:
+# \(\text{Precision} = \frac{\text{True Positives}}{\text{True Positives} + \text{False Positives}}\)Where:True Positives (TP): 
+# The model correctly predicted a positive outcome.False Positives (FP): The model incorrectly predicted a positive outcome (a false alarm).
+# Why Precision MattersPrecision is vital when the cost of a false positive is high. For instance, in Customer Churn Models, 
+# if an AI incorrectly predicts a customer will leave (a false positive), a company might waste resources giving them unnecessary discounts. Similarly, 
+
+
 #retrieved context ids and reference context ids / retrieved context ids -> precision
 # Here's the code:
 #
