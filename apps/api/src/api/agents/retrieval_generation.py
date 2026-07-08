@@ -2,11 +2,13 @@ from ast import MatchValue
 from tracemalloc import Filter
 
 import openai
+import cohere
 from langsmith import traceable, get_current_run_tree
 import instructor
 from pydantic import BaseModel, Field
 from qdrant_client import QdrantClient, models
 from qdrant_client.models import Filter, FieldCondition, MatchValue, Prefetch, Document
+
 
 from api.agents.utils.prompt_management import prompt_template_config
 
@@ -45,31 +47,39 @@ def get_embedding(text):
     name="retrieve_data",
     run_type="retriever"
 )
-def retrieve_data(query, qdrant_client, k=5): # 5 most similar items to users query
+def retrieve_data(query, qdrant_client, k=5, hybrid=True): # 5 most similar items to users query
     embedding = get_embedding(query) # so we are actually creating related vector here
     
-    results = qdrant_client.query_points(
-        collection_name="Amazon-items-collection-01-hybrid-search",
-        prefetch=[
-            Prefetch(
-                query=embedding,
-                using='text-embedding-3-small', #name of the vector in the collection
-                limit=20
-            ), 
-            Prefetch(
-                query=Document(text=query, model='qdrant/bm25'),
-                using='bm25', #name of the vector in the collection
-                limit=20
-            )
-        ],
-        # can set specific weights on how much importance we put on dense embeddings and bm25 lexical retrievals
-        # in this case dense vector retrival is weighted as 3 times more important than bm25
-        # if user queries are more keyword-based, you might want to increase the weight of bm25
-        # if more contextual then you might want to increase the weight of the dense vector retrieval
-        # weights can be added as params to the retrieve data function
-        query=models.RrfQuery(rrf=models.Rrf(weights=[3,1])), # how you fuse the results....
-        limit=k # once fused we are returning top k results
-    )
+    if hybrid:
+        results = qdrant_client.query_points(
+            collection_name="Amazon-items-collection-01-hybrid-search",
+            prefetch=[
+                Prefetch(
+                    query=embedding,
+                    using='text-embedding-3-small', #name of the vector in the collection
+                    limit=20
+                ), 
+                Prefetch(
+                    query=Document(text=query, model='qdrant/bm25'),
+                    using='bm25', #name of the vector in the collection
+                    limit=20
+                )
+            ],
+            # can set specific weights on how much importance we put on dense embeddings and bm25 lexical retrievals
+            # in this case dense vector retrival is weighted as 3 times more important than bm25
+            # if user queries are more keyword-based, you might want to increase the weight of bm25
+            # if more contextual then you might want to increase the weight of the dense vector retrieval
+            # weights can be added as params to the retrieve data function
+            query=models.RrfQuery(rrf=models.Rrf(weights=[3,1])), # how you fuse the results....
+            limit=k # once fused we are returning top k results
+        )
+    else:
+        results = qdrant_client.query_points(
+            collection_name="Amazon-items-collection-01-hybrid-search",
+            query=embedding,
+            using='text-embedding-3-small',
+            limit=k
+        )
     
     retrieved_context_ids = []
     retrieved_context = []
@@ -87,6 +97,27 @@ def retrieve_data(query, qdrant_client, k=5): # 5 most similar items to users qu
         "retrieved_context": retrieved_context,
         "similarity_scores": similarity_scores,
         "retrieved_context_ratings": retrieved_context_ratings
+    }
+@traceable(
+    name="rerank_data",
+    run_type="tool"
+)
+def rerank_data(query, context, topk_k=5):
+    cohere_client = cohere.ClientV2()
+    # so we pass the query and the array of preprocessed_description name, desc context chunks
+    response = cohere_client.rerank(
+        model="rerank-english-v4-pro",
+        query=query,
+        documents=context['retrieved_context'],
+        top_n=topk_k
+    )
+    order = [result.index for result in response.results]
+    # re order the original context
+    return {
+        "retrieved_context_ids": [context["retrieved_context_ids"][i] for i in order],
+        "retrieved_context": [context["retrieved_context"][i] for i in order],
+        "similarity_scores": [context["similarity_scores"][i] for i in order],
+        "retrieved_context_ratings": [context["retrieved_context_ratings"][i] for i in order]
     }
     
 @traceable(
@@ -135,8 +166,16 @@ def generate_answer(prompt):
 @traceable(
     name="rag_pipeline"
 )
-def rag_pipeline(question, qdrant_client, topk_k=5):
-    retrievedContext = retrieve_data(question, qdrant_client, k=topk_k)
+def rag_pipeline(question, qdrant_client, topk_k=5, hybrid=True, rerank=False, retrieve_k=20):
+    retrievedContext = retrieve_data(
+        question, 
+        qdrant_client, 
+        k=retrieve_k if rerank else topk_k,
+        hybrid=hybrid
+    )
+    if rerank:
+        # if we set rerank to True, we re-order the retrieved context based on the reranker results
+        retrievedContext = rerank_data(question, retrievedContext, topk_k=topk_k)
     processed_context = process_context(retrievedContext)
     prompt = build_prompt(processed_context, question)
     answer = generate_answer(prompt) ## llm call w/ prompt

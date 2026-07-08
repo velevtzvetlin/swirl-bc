@@ -194,6 +194,7 @@ name = "api"
 version = "0.1.0"
 source = { editable = "apps/api" }
 dependencies = [
+    { name = "cohere" },
     { name = "fastapi" },
     { name = "google-genai" },
     { name = "groq" },
@@ -209,6 +210,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cohere", specifier = ">=7.0.5" },
     { name = "fastapi", specifier = ">=0.138.1" },
     { name = "google-genai", specifier = ">=2.10.0" },
     { name = "groq", specifier = ">=1.5.0" },
