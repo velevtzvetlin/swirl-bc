@@ -21,6 +21,29 @@ ragas_llm = llm_factory("gpt-4.1", client=openai_client, max_tokens=4000)
 ragas_embeddings = OpenAIEmbeddings(client=openai_client, model="text-embedding-3-small")
 
 #retrieved context ids and reference context ids / retrieved context ids -> precision
+# Here's the code:
+#
+# score = (
+#     len(retrieved_context_ids & reference_context_ids)
+#     / len(retrieved_context_ids)
+#     if retrieved_context_ids else 0.0
+# )
+#
+# Let's break it down.
+#
+# Suppose:
+#
+# retrieved_context_ids = {1, 2, 3, 4, 5}
+# reference_context_ids = {2, 4, 6}
+#
+# The intersection is:
+#
+# retrieved_context_ids & reference_context_ids
+# # {2, 4}
+#
+# So:
+#
+# precision = 2 / 5 = 0.4
 def context_prescision_id_based(run, example): #run.output is the actual trace in langsmith
     retrieved_context_ids = {str(id) for id in run.outputs["retrieved_context_ids"]} # builds a set of retrieved context IDs
     reference_context_ids = {str(id) for id in example.outputs["reference_context_ids"]} # builds a set of reference context IDs
