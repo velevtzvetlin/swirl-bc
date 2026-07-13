@@ -105,13 +105,13 @@ if prompt := st.chat_input("Hello! How can I assist you today?"):
     with st.chat_message("assistant"):
         state,output = api_call(
             method="post",
-            url=f"{config.API_URL}/rag",
+            url=f"{config.API_URL}/agent",
             json={
                 "query": prompt
             }
         )
-        answer = output["answer"]
-        used_context = output["used_context"]
+        answer = output.get("answer", "")
+        used_context = output.get("used_context", [])
         
         
         st.session_state.used_context = used_context

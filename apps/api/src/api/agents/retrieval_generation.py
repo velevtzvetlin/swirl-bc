@@ -98,6 +98,7 @@ def retrieve_data(query, qdrant_client, k=5, hybrid=True): # 5 most similar item
         "similarity_scores": similarity_scores,
         "retrieved_context_ratings": retrieved_context_ratings
     }
+
 @traceable(
     name="rerank_data",
     run_type="tool"
@@ -208,7 +209,6 @@ def get_point_by_parent_asin(parent_asin, qdrant_client):
 def rag_pipeline_wrapper(question, topk_k=5):
     qdrant_client = QdrantClient(url="http://qdrant:6333")
     result =  rag_pipeline(question, qdrant_client, topk_k=topk_k)
-    
     
     used_context = []
     

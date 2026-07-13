@@ -30,6 +30,7 @@ dev = [
     "langchain-community>=0.4.0,<0.4.2",
     "langchain-google-vertexai>=3.2.4",
     "langchain-openai>=1.1.9",
+    "langgraph>=1.2.2",
     "langsmith>=0.8.16",
     "matplotlib>=3.11.0",
     "nbconvert>=7.17.1",
