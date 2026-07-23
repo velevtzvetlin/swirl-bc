@@ -1,8 +1,9 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Optional, Union
 
-class RagRequest(BaseModel):
+class AgentRequest(BaseModel):
     query: str
+    thread_id: Optional[str] = None # we can use this to keep track of the conversation history in the future if we want to implement multi-turn conversations
 
 
 class RAGUsedContext(BaseModel):
@@ -10,7 +11,16 @@ class RAGUsedContext(BaseModel):
     price: Optional[float] = None
     description: str
 
-class RagResponse(BaseModel):
+class AgentResponse(BaseModel):
     answer: str
     used_context: list[RAGUsedContext]
-     
+    trace_id: str = ""
+    
+class FeedbackRequest(BaseModel):
+    trace_id: str
+    feedback_score: Union[int, None]= Field( description="Feedback score, 0 or 1.")
+    feedback_text: str = Field(description="Feedback text.")
+    feedback_source_type: str = Field(description="Feedback source type, 'api' or 'user'.")
+
+class FeedbackResponse(BaseModel):
+    message: str = Field(description="A message indicating the result of the feedback submission.")

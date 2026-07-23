@@ -31,3 +31,37 @@ services:
     volumes:
       - ./qdrant_data:/qdrant/storage:z #anything that happens in the qdrant storage it will always be stored in the local.qdrant and reload it
     restart: unless-stopped
+  
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - 5433:5432
+    environment:
+      POSTGRES_DB: langgraph_db
+      POSTGRES_USER: langgraph_user
+      POSTGRES_PASSWORD: langgraph_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    restart: unless-stopped
+    volumes:
+      # an data we write will be stored locally postgres_data and if we restart the container it will be reloaded from there, so we don't lose data when we restart the container
+      - ./postgres_data:/var/lib/postgresql/data
+
+  items_mcp_server:
+    build:
+      context: .
+      dockerfile: apps/items_mcp_server/Dockerfile
+    ports:
+      - 8001:8000 #exposing 8000 in docker but binding to differnet port on localhost
+    env_file:
+      - .env
+    restart: unless-stopped
+  
+  reviews_mcp_server:
+    build:
+      context: .
+      dockerfile: apps/reviews_mcp_server/Dockerfile
+    ports:
+      - 8002:8000 #exposing 8000 in docker but binding to differnet port on localhost
+    env_file:
+      - .env
+    restart: unless-stopped

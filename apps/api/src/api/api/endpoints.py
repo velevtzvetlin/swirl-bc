@@ -1,24 +1,39 @@
 from fastapi import APIRouter, Request
-from api.api.models import RAGUsedContext, RagRequest, RagResponse
+from api.api.models import FeedbackResponse, FeedbackRequest, RAGUsedContext, AgentRequest, AgentResponse
 from api.agents.graph import agent_wrapper
-
+from api.api.processors.submit_feedback import submit_feedback
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 rag_router = APIRouter()
-
+feedback_router = APIRouter()
 
 @rag_router.post("/")
 def chat(
     request: Request,
-    payload: RagRequest
-) -> RagResponse:
-    result = agent_wrapper(payload.query)
-    # transforming dictoinary into pydnatic schema
-    return RagResponse(answer=result.get("answer", ""), used_context=[RAGUsedContext(**item) for item in result.get("used_context", [])])
+    payload: AgentRequest
+) -> AgentResponse:
+    result = agent_wrapper(payload.query, payload.thread_id)
+    # transforming dictionary into pydantic schema
+    return AgentResponse(
+        answer=result.get("answer", ""), 
+        used_context=[RAGUsedContext(**item) for item in result.get("used_context", [])],
+        trace_id=result.get("trace_id", "")
+    )
+    
+
+@feedback_router.post("/")
+def send_feedback(
+    request: Request,
+    payload: FeedbackRequest
+) -> FeedbackResponse:
+    submit_feedback(payload.trace_id, payload.feedback_score, payload.feedback_text, payload.feedback_source_type)
+    return FeedbackResponse(message="Feedback submitted successfully.")
+    
 
 api_router = APIRouter()
 api_router.include_router(rag_router, prefix="/agent", tags=["agent"])
+api_router.include_router(feedback_router, prefix="/submit_feedback", tags=["feedback"])
 

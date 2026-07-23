@@ -4,11 +4,11 @@ from operator import add
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.messages import HumanMessage
-from qdrant_client import QdrantClient, models
+from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue, Prefetch, Document
+from langgraph.checkpoint.postgres import PostgresSaver
 
-
-from api.agents.tools import get_formatted_item_context
+from api.agents.tools import get_formatted_item_context, get_formatted_reviews_context
 from api.agents.retrieval_generation import RAGUsedContext
 from api.agents.agents import agent_node, intent_router_node
 
@@ -21,7 +21,8 @@ class State(BaseModel):
     iteration: int = 0
     answer: str = ""
     final_answer: bool = False
-    references: List[RAGUsedContext] = []
+    references: List[RAGUsedContext] = [],
+    trace_id: str = ""
     
 ### Edges
 def tool_router(state: State) -> str:
@@ -59,7 +60,7 @@ def get_point_by_parent_asin(parent_asin, qdrant_client):
 ### Workflow
 
 workflow = StateGraph(State)
-tools = [get_formatted_item_context]
+tools = [get_formatted_item_context, get_formatted_reviews_context]
 tool_node = ToolNode(tools)
 
 
@@ -93,17 +94,21 @@ graph = workflow.compile()
 
 ### Agent Execution
 
-def run_agent(question: str) -> dict:
+def agent_wrapper(question: str, thread_id: str) -> dict:
     initial_state = {
         "messages": [HumanMessage(content=question)],
         "iteration": 0
     }
-    result = graph.invoke(initial_state)
-    return result
-
-def agent_wrapper(question: str) -> dict:
+    config = {
+        "configurable": {
+            "thread_id": thread_id
+        }
+    }
+    with PostgresSaver.from_conn_string("postgresql://langgraph_user:langgraph_password@postgres:5432/langgraph_db") as checkpointer:
+        graph = workflow.compile(checkpointer=checkpointer)
+        result = graph.invoke(initial_state, config=config)
+    
     qdrant_client = QdrantClient(url="http://qdrant:6333")
-    result = run_agent(question)
     
     used_context = []
     
@@ -126,7 +131,8 @@ def agent_wrapper(question: str) -> dict:
                 
     return {
         "answer": result.get("answer", ""),
-        "used_context": used_context
+        "used_context": used_context,
+        "trace_id": result.get("trace_id", "")
     }
     
     
