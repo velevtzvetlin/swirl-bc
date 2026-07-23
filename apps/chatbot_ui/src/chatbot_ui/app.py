@@ -1,5 +1,5 @@
 import uuid
-
+import json
 import streamlit as st
 import requests
 from chatbot_ui.core.config import config  # this is importing from the file we created src/core/config
@@ -49,6 +49,31 @@ def api_call(method, url, **kwargs):
     except Exception as e:
         _show_error_popup(f"An unexpected error occurred: {str(e)}")
         return False, {"message": str(e)}
+    
+def api_call_stream(method, url, **kwargs):
+    def _show_error_popup(message):
+        """Show error message as a popup in the top-right corner."""
+        st.session_state["error_popup"] = {
+            "visible": True,
+            "message": message
+        }
+
+    try:
+        response = getattr(requests, method)(url, **kwargs)
+        
+        return response.iter_lines()
+            
+
+    except requests.exceptions.ConnectionError:
+        _show_error_popup("Connection error. Please check your network connection.")
+        return False, {"message": "Connection error"}
+    except requests.exceptions.Timeout:
+        _show_error_popup("The request timed out. Please try again later.")
+        return False, {"message": "Request timeout"}
+    except Exception as e:
+        _show_error_popup(f"An unexpected error occurred: {str(e)}")
+        return False, {"message": str(e)}
+
 
 def submit_feedback(feedback_type=None, feedback_text=""):
     """Submit feedback to the API endpoint"""
@@ -220,23 +245,40 @@ if prompt := st.chat_input("Hello! How can I assist you today?"):
     with st.chat_message("user"):
         st.markdown(prompt)
     with st.chat_message("assistant"):
-        state,output = api_call(
-            method="post",
-            url=f"{config.API_URL}/agent",
-            json={
-                "query": prompt,
-                "thread_id": st.session_state.thread_id
-            }
-        )
-        answer = output.get("answer", "")
-        used_context = output.get("used_context", [])
-        trace_id = output.get("trace_id", "")
-        st.session_state.trace_id = trace_id
-        st.session_state.used_context = used_context
-        
-        st.write(answer)
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": answer
-        }) 
+        status_placeholder = st.empty()
+        message_placeholder = st.empty()
+
+        for line in api_call_stream(
+            "post",
+            f"{config.API_URL}/agent",
+            json={"query": prompt, "thread_id": thread_id},
+            stream=True,
+            headers={"Accept": "text/event-stream"}
+        ):
+            line_text = line.decode("utf-8")
+            if line_text.startswith("data: "):
+                data = line_text[6:]
+
+                try:
+                    output = json.loads(data)
+
+                    if output["type"] == "final_answer":
+                        answer = output["data"]["answer"]
+                        used_context = output["data"]["used_context"]
+                        trace_id = output["data"]["trace_id"]
+
+                        st.session_state.used_context = used_context
+                        st.session_state.messages.append({"role": "assistant", "content": answer})
+                        st.session_state.trace_id = trace_id
+
+                        st.session_state.latest_feedback = None
+                        st.session_state.show_feedback_box = False
+                        st.session_state.feedback_submission_status = None
+
+                        status_placeholder.empty()
+                        message_placeholder.markdown(answer)
+                        break
+
+                except json.JSONDecodeError:
+                    status_placeholder.markdown(f"*{data}*")
     st.rerun()
