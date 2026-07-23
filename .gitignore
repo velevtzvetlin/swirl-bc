@@ -2,4 +2,5 @@
 .venv
 qdrant_data/
 data/
+postgres_data/
 __pycache__/

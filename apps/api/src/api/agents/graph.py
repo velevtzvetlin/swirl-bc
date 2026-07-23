@@ -4,13 +4,14 @@ from operator import add
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.messages import HumanMessage
-from qdrant_client import QdrantClient, models
+from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue, Prefetch, Document
+from langgraph.checkpoint.postgres import PostgresSaver
 
-
-from api.agents.tools import get_formatted_item_context
+from api.agents.tools import get_formatted_item_context, get_formatted_reviews_context
 from api.agents.retrieval_generation import RAGUsedContext
 from api.agents.agents import agent_node, intent_router_node
+import json
 
 
 from api.agents.agents import RAGUsedContext
@@ -21,7 +22,8 @@ class State(BaseModel):
     iteration: int = 0
     answer: str = ""
     final_answer: bool = False
-    references: List[RAGUsedContext] = []
+    references: List[RAGUsedContext] = [],
+    trace_id: str = ""
     
 ### Edges
 def tool_router(state: State) -> str:
@@ -59,7 +61,7 @@ def get_point_by_parent_asin(parent_asin, qdrant_client):
 ### Workflow
 
 workflow = StateGraph(State)
-tools = [get_formatted_item_context]
+tools = [get_formatted_item_context, get_formatted_reviews_context]
 tool_node = ToolNode(tools)
 
 
@@ -93,17 +95,67 @@ graph = workflow.compile()
 
 ### Agent Execution
 
-def run_agent(question: str) -> dict:
+def agent_stream_wrapper(question: str, thread_id: str) -> dict:
+    def _string_for_sse(string):
+        return f"data: {string}\n\n"
+    
+    def _process_graph_event(chunk):
+        def _is_node_start(chunk):
+            return chunk[1].get("type") == "task"
+
+        def _tool_to_text(tool_call):
+            if tool_call.get("name") == "get_formatted_item_context":
+                return f"Looking for items: {tool_call.get('args').get('query', '')}."
+            elif tool_call.get("name") == "get_formatted_reviews_context":
+                return f"Fetching user reviews..."
+
+        if _is_node_start(chunk):
+            if chunk[1].get("payload", {}).get("name") == "intent_router_node":
+                return "Analysing the question..."
+            if chunk[1].get("payload", {}).get("name") == "agent_node":
+                return "Planning..."
+            if chunk[1].get("payload", {}).get("name") == "tool_node":
+                input_state = chunk[1].get('payload', {}).get('input', None)
+                if hasattr(input_state, 'messages'):
+                    messages = input_state.messages
+                elif isinstance(input_state, dict):
+                    messages = input_state.get('messages', [])
+                else:
+                    messages = []
+                last_msg = messages[-1] if messages else None
+                tool_calls = getattr(last_msg, 'tool_calls', None) or [] if last_msg else []
+                message = ". ".join([_tool_to_text(tool_call) for tool_call in tool_calls])
+                return message
     initial_state = {
         "messages": [HumanMessage(content=question)],
         "iteration": 0
     }
-    result = graph.invoke(initial_state)
-    return result
+    config = {
+        "configurable": {
+            "thread_id": thread_id
+        }
+    }
+    with PostgresSaver.from_conn_string("postgresql://langgraph_user:langgraph_password@postgres:5432/langgraph_db") as checkpointer:
+        graph = workflow.compile(
+            checkpointer=checkpointer
 
-def agent_wrapper(question: str) -> dict:
+        )
+        for chunk in graph.stream(
+            initial_state, 
+            config=config, 
+            stream_mode=["debug", "values"]
+        ):
+            processed_chunk = _process_graph_event(chunk)
+            # if the current chunk is not the response stream the processed_chunk will contain intermediate messages from the agent or tool nodes
+            # the function will return string or None and bypass this stream if it is the response stream
+            if processed_chunk:
+                yield _string_for_sse(processed_chunk)
+            
+            if chunk[0] == "values":
+                result = chunk[1]
+
+    
     qdrant_client = QdrantClient(url="http://qdrant:6333")
-    result = run_agent(question)
     
     used_context = []
     
@@ -123,11 +175,19 @@ def agent_wrapper(question: str) -> dict:
                     "description": item.get("description", ""),
                     "parent_asin": parent_asin
                 })
-                
-    return {
-        "answer": result.get("answer", ""),
-        "used_context": used_context
-    }
+
+    yield _string_for_sse(
+            json.dumps(
+                {
+                    "type": "final_answer",
+                    "data": {
+                                "answer": result.get("answer", ""),
+                                "used_context": used_context,
+                                "trace_id": result.get("trace_id", "")
+                    }
+                }
+            )
+    )
     
     
  
