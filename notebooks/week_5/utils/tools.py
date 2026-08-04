@@ -2,13 +2,15 @@ import openai
 import cohere
 from qdrant_client import QdrantClient
 from langsmith import traceable, get_current_run_tree
-from qdrant_client.models import FieldCondition, Filter, FusionQuery, MatchAny, Prefetch, Document,MatchValue
+from qdrant_client.models import FieldCondition, Filter, FusionQuery, MatchAny, MatchValue, Prefetch, Document
 from qdrant_client import models
 from langchain_core.tools import tool
+
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import numpy as np
+
 
 
 @traceable(
@@ -142,7 +144,7 @@ def get_formatted_item_context(query: str, top_k: int = 5) -> str:
         Returns:
         A string of the top k available products, each prefixed with its ID and average rating.
     """
-    qdrant_client = QdrantClient(url="http://qdrant:6333") # connecting from within docker network
+    qdrant_client = QdrantClient(url="http://localhost:6333") # connecting from within docker network
     retrievedContext = retrieve_items_data(
         query, 
         qdrant_client, 
@@ -224,7 +226,7 @@ def get_formatted_reviews_context(query: str, parent_asins: list[str], top_k: in
             A string of the top k context chunks with IDs prepending each chunk, each representing a review for a given inventory item for
     """
 
-    qdrant_client = QdrantClient(url="http://qdrant:6333") # connecting from within docker network
+    qdrant_client = QdrantClient(url="http://localhost:6333") # connecting from within docker network
     retrievedContext = retrieve_prefiltered_reviews_data(
         query,
         parent_asins,
@@ -254,8 +256,8 @@ def add_to_shopping_cart(items: list[dict], user_id: str, cart_id: str) -> str:
     """
 
     conn = psycopg2.connect(
-        host="postgres",
-        port=5432,
+        host="localhost",
+        port=5433,
         database="tools_database",
         user="tools_user",
         password="tools_user_password"
@@ -269,7 +271,7 @@ def add_to_shopping_cart(items: list[dict], user_id: str, cart_id: str) -> str:
             product_id = item['product_id']
             quantity = item['quantity']
 
-            qdrant_client = QdrantClient(url="http://qdrant:6333")
+            qdrant_client = QdrantClient(url="http://localhost:6333")
 
             dummy_vector = np.zeros(1536).tolist()
             res = qdrant_client.query_points(
@@ -350,42 +352,8 @@ def get_shopping_cart(user_id: str, cart_id: str) -> list[dict]:
         list of dictionaries containing cart items
     """
     conn = psycopg2.connect(
-        host="postgres",
-        port=5432,
-        database="tools_database",
-        user="tools_user",
-        password="tools_user_password"
-    )
-    conn.autocommit = True
-
-    with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-        query = """
-        SELECT
-            product_id, price, quantity,
-            currency, product_image_url,
-            (price * quantity) as total_price
-        FROM shopping_carts.shopping_cart_items
-        WHERE user_id = %s AND shopping_cart_id = %s
-        ORDER BY added_at DESC
-        """  
-        cursor.execute(query, (user_id, cart_id))
-        
-        return [row for row in cursor.fetchall()]
-    
-def get_shopping_cart_for_sse(user_id: str, cart_id: str) -> list[dict]:
-    """
-    Retrieve all items in a user's shopping cart.
-
-    Args:
-        user_id: User identifier
-        cart_id: Cart identifier
-
-    Returns:
-        list of dictionaries containing cart items
-    """
-    conn = psycopg2.connect(
-        host="postgres",
-        port=5432,
+        host="localhost",
+        port=5433,
         database="tools_database",
         user="tools_user",
         password="tools_user_password"
@@ -422,8 +390,8 @@ def remove_from_cart(product_id: str, user_id: str, cart_id: str) -> str:
         Information about the removal of the item from the shopping cart.
     """
     conn = psycopg2.connect(
-        host="postgres",
-        port=5432,
+        host="localhost",
+        port=5433,
         database="tools_database",
         user="tools_user",
         password="tools_user_password"
@@ -456,8 +424,8 @@ def check_warehouse_availability(items: list[dict]) -> dict:
     """
 
     conn = psycopg2.connect(
-        host="postgres",
-        port=5432,
+        host="localhost",
+        port=5433,
         database="tools_database",
         user="tools_user",
         password="tools_user_password"
@@ -574,6 +542,7 @@ def check_warehouse_availability(items: list[dict]) -> dict:
 
     finally:
         conn.close()
+        conn.close()
 
 @tool
 def reserve_warehouse_items(reservations: list[dict]) -> dict:
@@ -593,8 +562,8 @@ def reserve_warehouse_items(reservations: list[dict]) -> dict:
     """
 
     conn = psycopg2.connect(
-        host="postgres",
-        port=5432,
+        host="localhost",
+        port=5433,
         database="tools_database",
         user="tools_user",
         password="tools_user_password"
