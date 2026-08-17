@@ -8,8 +8,8 @@ from jinja2 import Template
 from langchain_openai import ChatOpenAI
 import instructor
 from api.agents.utils.prompt_management import prompt_template_config
+from api.agents.utils.utils import postprocess_response
 from api.agents.tools import get_formatted_item_context, get_formatted_reviews_context, add_to_shopping_cart, remove_from_cart, get_shopping_cart, reserve_warehouse_items, check_warehouse_availability
-from typing import List
 
 ### Q&A Agent Response Model
 class RAGUsedContext(BaseModel):
@@ -27,13 +27,8 @@ class FinalAgentResponse(BaseModel):
     answer: str = Field(description="Answer to the question")
     
 ### coordinator agent response
-class Delegation(BaseModel):
-    agent: str = Field(description="The agent to invoke, either 'product_qna_agent' or 'shopping_cart_agent'")
-    task: str = Field(description="The task to be performed by the agent")
-
 class Plan(BaseModel):
-    next_agent: str = Field(description="The next agent to invoke, either 'product_qna_agent' or 'shopping_cart_agent'")
-    plan: List[Delegation] = Field(description="A list of delegations to agents with tasks to be performed in sequence")
+    next_agent: str = Field(description="The next agent to invoke, either 'product_qna_agent', 'shopping_cart_agent', or 'warehouse_manager_agent'")
 
 
 ### Product QNA agent
@@ -76,24 +71,11 @@ def product_qna_agent(state) -> dict: # agent node always gets state object
             "total_tokens": response.usage_metadata["total_tokens"],
         }
     
-    final_answer = False
-    answer = ""
-    references = []
-    
-    def sanitize_response(response):
-        for tool_call in response.tool_calls:
-            if tool_call.get("name") == "FinalQnAAgentResponse":
-                answer = tool_call.get("args").get("answer")
-        return AIMessage(content=answer)     
-    
-    if(len(response.tool_calls) > 0):
-        for tool_call in response.tool_calls:
-            if tool_call.get("name") == "FinalQnAAgentResponse":
-                final_answer = True
-                references.extend(tool_call.get("args").get("references"))
-                answer = tool_call.get("args").get("answer")
-                
-                response = sanitize_response(response)
+    postprocessed_response = postprocess_response(response, "FinalQnAAgentResponse", agent_name="product_qna_agent")
+    final_answer = postprocessed_response.get("final_answer")
+    answer = postprocessed_response.get("answer")
+    references = postprocessed_response.get("references")
+    response = postprocessed_response.get("response")
                 
     # response.tool_calls.... 
     return {
@@ -141,22 +123,10 @@ def shopping_cart_agent(state) -> dict: # agent node always gets state object
             "total_tokens": response.usage_metadata["total_tokens"],
         }
     
-    final_answer = False
-    answer = ""
-    
-    def sanitize_response(response):
-        for tool_call in response.tool_calls:
-            if tool_call.get("name") == "FinalAgentResponse":
-                answer = tool_call.get("args").get("answer")
-        return AIMessage(content=answer)     
-    
-    if(len(response.tool_calls) > 0):
-        for tool_call in response.tool_calls:
-            if tool_call.get("name") == "FinalAgentResponse":
-                final_answer = True
-                answer = tool_call.get("args").get("answer")
-                
-                response = sanitize_response(response)
+    postprocessed_response = postprocess_response(response, "FinalAgentResponse", agent_name="shopping_cart_agent")
+    final_answer = postprocessed_response.get("final_answer")
+    answer = postprocessed_response.get("answer")
+    response = postprocessed_response.get("response")
                 
     return {
             "messages": [response],
@@ -205,22 +175,10 @@ def warehouse_manager_agent(state) -> dict: # agent node always gets state objec
             "total_tokens": response.usage_metadata["total_tokens"],
         }
     
-    final_answer = False
-    answer = ""
-    
-    def sanitize_response(response):
-        for tool_call in response.tool_calls:
-            if tool_call.get("name") == "FinalAgentResponse":
-                answer = tool_call.get("args").get("answer")
-        return AIMessage(content=answer)     
-    
-    if(len(response.tool_calls) > 0):
-        for tool_call in response.tool_calls:
-            if tool_call.get("name") == "FinalAgentResponse":
-                final_answer = True
-                answer = tool_call.get("args").get("answer")
-                
-                response = sanitize_response(response)
+    postprocessed_response = postprocess_response(response, "FinalAgentResponse", agent_name="warehouse_manager_agent")
+    final_answer = postprocessed_response.get("final_answer")
+    answer = postprocessed_response.get("answer")
+    response = postprocessed_response.get("response")
                 
     # response.tool_calls.... 
     return {
@@ -247,7 +205,7 @@ def coordinator_agent(state) -> dict: # agent node always gets state object
     prompt = template.render()
     llm = ChatOpenAI(
         model="gpt-5.4-mini", 
-        reasoning_effort = "low",
+        reasoning_effort = "medium",
         use_responses_api = True
     )
 
@@ -271,28 +229,17 @@ def coordinator_agent(state) -> dict: # agent node always gets state object
     
     final_answer = False
     answer = ""
-    plan = []
     next_agent = ""
     
-    def sanitise_response(response):
-        for tool_call in response.tool_calls:
-            if tool_call.get("name") == "FinalAgentResponse":
-                answer = tool_call.get("args").get("answer")
-
-        return AIMessage(content=answer)
-
     if len(response.tool_calls) > 0:
         if response.tool_calls[0].get("name") == "Plan":
-            plan = response.tool_calls[0].get("args").get("plan")
             next_agent = response.tool_calls[0].get("args").get("next_agent")
-            response = None  # don't add a tool-call message to history when delegating
+            response = AIMessage(content=f"[Coordinator Agent Decision]: {next_agent}")
         else:
-            for tool_call in response.tool_calls:
-                if tool_call.get("name") == "FinalAgentResponse":
-                    final_answer = True
-                    answer = tool_call.get("args").get("answer")
-
-            response = sanitise_response(response)
+            post_processed_response = postprocess_response(response, "FinalAgentResponse")
+            final_answer = post_processed_response.get("final_answer")
+            answer = post_processed_response.get("answer")
+            response = post_processed_response.get("response")
 
 
     return { 
@@ -300,7 +247,6 @@ def coordinator_agent(state) -> dict: # agent node always gets state object
         "coordinator_agent": {
             "iteration": state.coordinator_agent.iteration + 1,
             "final_answer": final_answer,
-            "plan": plan,
             "next_agent": next_agent
         },
         "answer": answer,

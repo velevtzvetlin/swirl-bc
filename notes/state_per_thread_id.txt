@@ -1,0 +1,21 @@
+Two separate things going on here.
+
+Question 1 — Why no explicit iteration reset in the class example?
+
+The class example likely used a fresh thread_id every run (or no checkpointer at all). When you do that, the State class defaults kick in:
+
+
+The explicit zeros in initial_state here are redundant for a brand-new thread — they're just defensive. They become meaningful on the second question...
+
+Question 2 — Same thread_id on a second call?
+
+Because of the AsyncPostgresSaver checkpointer, the saved state is loaded and merged with your initial_state input. The behavior splits by field type:
+
+Field	Reducer	What happens on 2nd call
+messages	add	New HumanMessage is appended to the full history
+coordinator_agent.iteration	none	Overwritten to 0 (because you pass it explicitly)
+product_qna_agent.iteration	none	Overwritten to 0
+answer, user_intent, etc.	none	Overwritten by whatever you pass
+So a second call with the same thread_id is a multi-turn conversation: the agent sees the full prior message history, but the iteration guards are freshly reset to 0, so it won't hit the iteration > 6 exit prematurely.
+
+The subtle risk is that the message list keeps growing — every run appends to it — so on turn 3+ the LLM receives a very long context. You'd handle that by trimming messages or using a separate thread_id per logical conversation.

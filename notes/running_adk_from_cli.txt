@@ -1,0 +1,1 @@
+uv run --env-file .env python apps/a2a_warehouse_manager_agent/warehouse_manager_agent/app.py

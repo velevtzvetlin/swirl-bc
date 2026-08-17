@@ -20,7 +20,6 @@ from api.agents.tools import (
     get_shopping_cart_for_sse
 )
 from api.agents.agents import (
-    Delegation,
     RAGUsedContext,
     product_qna_agent,
     shopping_cart_agent,
@@ -36,7 +35,6 @@ class AgentProperties(BaseModel):
 class CoordinatorAgentProperties(BaseModel):
     iteration: int = 0
     final_answer: bool = False 
-    plan: List[Delegation] = []
     next_agent: str = ""
     
 class State(BaseModel):
@@ -94,6 +92,9 @@ def coordinator_agent_edge(state) -> str:
     elif state.coordinator_agent.next_agent == "shopping_cart_agent":
         print("Routing to shopping_cart_agent")
         return "shopping_cart_agent"
+    elif state.coordinator_agent.next_agent == "warehouse_manager_agent":
+        print("Routing to warehouse_manager_agent")
+        return "warehouse_manager_agent"
     else:
         return "end"
 
@@ -231,7 +232,6 @@ def agent_stream_wrapper(question: str, thread_id: str) -> dict:
         "coordinator_agent": {
                 "iteration": 0,
                 "final_answer": False,
-                "plan": [],
                 "next_agent": ""
         },
         "product_qna_agent": {
